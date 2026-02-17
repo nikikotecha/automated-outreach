@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Outreach Bot</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="container">
+    <section class="hero">
+      <div class="hero-badge">Powered by Azure OpenAI</div>
+      <h1>AI Prospecting + Outreach</h1>
+      <p class="subtitle">Create a campaign, run prospecting, and review draft emails in minutes.</p>
+    </section>
+
+    <div class="grid-2">
+      <section class="card">
+        <h2>Create Campaign</h2>
+        <label>ICP Prompt</label>
+        <textarea id="icp" rows="3" placeholder="UK ecommerce operations leaders"></textarea>
+        <label>Max Leads</label>
+        <input id="maxLeads" type="number" value="25" min="1" max="500" />
+        <div class="actions">
+          <button class="btn-primary" onclick="createCampaign()">Create Campaign</button>
+        </div>
+        <div id="campaignResult" class="result"></div>
+      </section>
+
+      <section class="card">
+        <h2>Run Campaign</h2>
+        <label>Campaign ID</label>
+        <input id="campaignId" type="text" placeholder="campaign id" />
+        <div class="actions">
+          <button class="btn-primary" onclick="runCampaign()">Run Prospecting</button>
+          <button class="btn-secondary" onclick="loadLeads()">Load Leads</button>
+          <button class="btn-ghost" onclick="loadLinkedInProfiles()">Load LinkedIn Profiles</button>
+        </div>
+        <div id="runResult" class="result"></div>
+        <div class="toolbar">
+          <span id="campaignStatus" class="pill">Status: —</span>
+          <span id="campaignProgress" class="pill">Progress: 0%</span>
+        </div>
+        <div class="progress" style="margin-top: 10px;">
+          <div id="progressBar" class="progress-bar"></div>
+        </div>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top: 24px;">
+      <h2>Leads</h2>
+      <div class="toolbar">
+        <button class="btn-ghost" onclick="toggleSelectAll()">Select All</button>
+        <button class="btn-secondary" onclick="sendSelected()">Send Selected</button>
+        <button class="btn-ghost" onclick="exportCsv()">Export CSV</button>
+        <span id="emailStatus" class="pill">Email: checking…</span>
+      </div>
+      <div id="leads" class="leads"></div>
+    </section>
+
+    <section class="card" style="margin-top: 20px;">
+      <h2>LinkedIn Profiles</h2>
+      <div id="linkedinProfiles" class="leads"></div>
+    </section>
+  </main>
+
+  <script>
+    async function createCampaign() {
+      const icp_prompt = document.getElementById('icp').value.trim();
+      const max_leads = parseInt(document.getElementById('maxLeads').value, 10);
+      const response = await fetch('/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ icp_prompt, max_leads })
+      });
+      const data = await response.json();
+      document.getElementById('campaignResult').innerText = JSON.stringify(data, null, 2);
+      if (data.id) {
+        document.getElementById('campaignId').value = data.id;
+      }
+    }
+
+    async function runCampaign() {
+      const campaignId = document.getElementById('campaignId').value.trim();
+      const response = await fetch(`/campaigns/${campaignId}/run`, { method: 'POST' });
+      const data = await response.json();
+      document.getElementById('runResult').innerText = JSON.stringify(data, null, 2);
+      await loadCampaignStatus();
+    }
+
+    async function loadLeads() {
+      const campaignId = document.getElementById('campaignId').value.trim();
+      const response = await fetch(`/campaigns/${campaignId}/leads`);
+      const data = await response.json();
+      const leadsEl = document.getElementById('leads');
+      leadsEl.innerHTML = '';
+      data.forEach(lead => {
+        const card = document.createElement('div');
+        card.className = 'lead-card';
+        const leadId = lead.RowKey || lead.id || '';
+        const qa = evaluateEmailQA(lead);
+        card.innerHTML = `
+          <div class="toolbar" style="justify-content: space-between;">
+            <label style="margin:0; display:flex; align-items:center; gap:8px;">
+              <input type="checkbox" class="lead-select" data-lead-id="${leadId}" />
+              <strong>${lead.full_name || 'Unknown'}</strong>
+            </label>
+            <span class="pill">Score: ${lead.score || 0}</span>
+          </div>
+          <p>${lead.role || ''} ${lead.company || ''}</p>
+          <label>Email</label>
+          <input type="text" value="${lead.selected_email || ''}" data-field="selected_email" data-lead-id="${leadId}" />
+          <label>Subject</label>
+          <input type="text" value="${(lead.outreach_subject || '').replace(/"/g, '&quot;')}" data-field="outreach_subject" data-lead-id="${leadId}" />
+          <label>Body</label>
+          <textarea rows="6" data-field="outreach_body" data-lead-id="${leadId}">${lead.outreach_body || ''}</textarea>
+          <div class="qa">
+            ${qa.map(item => `<span class="qa-badge ${item.bad ? 'bad' : ''}">${item.label}</span>`).join('')}
+          </div>
+          <div class="actions">
+            <button class="btn-secondary" data-action="save" data-lead-id="${leadId}">Save Draft</button>
+            <button class="btn-primary" data-action="send" data-lead-id="${leadId}">Send Email</button>
+          </div>
+        `;
+        card.addEventListener('click', async (e) => {
+          const target = e.target;
+          if (!target || !target.dataset) return;
+          const action = target.dataset.action;
+          const leadId = target.dataset.leadId;
+          if (!action || !leadId) return;
+
+          if (action === 'save') {
+            const selected_email = card.querySelector('[data-field="selected_email"]').value;
+            const outreach_subject = card.querySelector('[data-field="outreach_subject"]').value;
+            const outreach_body = card.querySelector('[data-field="outreach_body"]').value;
+            await fetch(`/campaigns/${campaignId}/leads/${leadId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ selected_email, outreach_subject, outreach_body })
+            });
+            target.textContent = 'Saved';
+            setTimeout(() => { target.textContent = 'Save Draft'; }, 1200);
+          }
+
+          if (action === 'send') {
+            const res = await fetch(`/campaigns/${campaignId}/leads/${leadId}/send`, { method: 'POST' });
+            if (res.ok) {
+              target.textContent = 'Sent';
+            } else {
+              const err = await res.json();
+              target.textContent = 'Error';
+              alert(err.detail || 'Failed to send');
+            }
+          }
+        });
+        leadsEl.appendChild(card);
+      });
+      await loadCampaignStatus();
+    }
+
+    function evaluateEmailQA(lead) {
+      const checks = [];
+      const subject = lead.outreach_subject || '';
+      const body = lead.outreach_body || '';
+      const email = lead.selected_email || '';
+      checks.push({ label: email ? 'Email ✓' : 'Missing email', bad: !email });
+      checks.push({ label: subject.length >= 5 ? 'Subject ✓' : 'Short subject', bad: subject.length < 5 });
+      checks.push({ label: body.length >= 60 ? 'Body ✓' : 'Short body', bad: body.length < 60 });
+      return checks;
+    }
+
+    async function loadCampaignStatus() {
+      const campaignId = document.getElementById('campaignId').value.trim();
+      if (!campaignId) return;
+      const res = await fetch(`/campaigns/${campaignId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const status = data.status || '—';
+      const total = data.total_queries || data.query_count || 0;
+      const done = data.queries_completed || 0;
+      const pct = total ? Math.round((done / total) * 100) : 0;
+      document.getElementById('campaignStatus').innerText = `Status: ${status}`;
+      document.getElementById('campaignProgress').innerText = `Progress: ${pct}%`;
+      document.getElementById('progressBar').style.width = `${pct}%`;
+    }
+
+    async function checkEmailStatus() {
+      const res = await fetch('/status/email');
+      if (!res.ok) return;
+      const data = await res.json();
+      const el = document.getElementById('emailStatus');
+      if (data.configured) {
+        el.textContent = `Email: ready (${data.sender})`;
+      } else {
+        el.textContent = 'Email: not configured';
+      }
+    }
+
+    function toggleSelectAll() {
+      const boxes = document.querySelectorAll('.lead-select');
+      const allChecked = Array.from(boxes).every(b => b.checked);
+      boxes.forEach(b => { b.checked = !allChecked; });
+    }
+
+    async function sendSelected() {
+      const campaignId = document.getElementById('campaignId').value.trim();
+      const boxes = document.querySelectorAll('.lead-select:checked');
+      const lead_ids = Array.from(boxes).map(b => b.dataset.leadId);
+      if (lead_ids.length === 0) return alert('Select at least one lead.');
+      const res = await fetch(`/campaigns/${campaignId}/leads/send-batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lead_ids })
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        return alert(err.detail || 'Failed to send batch');
+      }
+      const data = await res.json();
+      alert(`Sent: ${data.results.filter(r => r.status === 'sent').length}`);
+      await loadLeads();
+    }
+
+    function exportCsv() {
+      const campaignId = document.getElementById('campaignId').value.trim();
+      if (!campaignId) return;
+      window.location.href = `/campaigns/${campaignId}/leads.csv`;
+    }
+
+    window.onload = () => {
+      checkEmailStatus();
+      setInterval(loadCampaignStatus, 10000);
+    };
+
+    async function loadLinkedInProfiles() {
+      const campaignId = document.getElementById('campaignId').value.trim();
+      const response = await fetch(`/campaigns/${campaignId}/linkedin-profiles`);
+      const data = await response.json();
+      const el = document.getElementById('linkedinProfiles');
+      el.innerHTML = '<h3>LinkedIn Profiles Found:</h3>';
+      if (data.length === 0) {
+        el.innerHTML += '<p>No LinkedIn profiles found. Try running the campaign again.</p>';
+        return;
+      }
+      data.forEach(profile => {
+        const card = document.createElement('div');
+        card.className = 'lead-card';
+        card.innerHTML = `
+          <h4><a href="${profile.linkedin_url}" target="_blank">${profile.name}</a></h4>
+          <p>${profile.role || ''} at ${profile.company || 'Unknown'}</p>
+          <p style="word-break: break-all; font-size: 0.9em; color: #0077b5;">
+            <a href="${profile.linkedin_url}" target="_blank">${profile.linkedin_url}</a>
+          </p>
+        `;
+        el.appendChild(card);
+      });
+    }
+  </script>
+</body>
+</html>
