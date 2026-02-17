@@ -1,42 +1,34 @@
 # Outreach Bot MVP
 
-Code-first MVP for AI prospecting and outreach on Azure.
+AI‑powered prospecting + outreach MVP on Azure. Discover leads, draft emails, and surface LinkedIn profiles for manual outreach — all from a single workflow.
 
-## Features
-- ICP prompt intake
-- LLM-generated search queries
-- Public web result collection
-- Name, role, company extraction
-- Email guessing
-- LLM relevance scoring
-- Personalized outreach emails
-- Lead and campaign storage
-- Follow-up drafting workflow
-- LinkedIn profile discovery (manual outreach)
-- Draft review + edit in UI
+**Tech:** FastAPI • Azure OpenAI • Azure Table Storage • Azure Communication Services • SerpAPI
+
+## Highlights
+- LLM‑generated search queries from ICP prompts
+- Lead enrichment (name, role, company, domain)
+- Relevance scoring + personalized email drafting
+- LinkedIn profile discovery for manual outreach
+- Draft review + edit in UI before sending
 - Bulk send + CSV export
-- Campaign progress status
+- Campaign progress tracking
 
-## Local Setup
+## Quickstart
 1. Copy .env.example to .env and fill Azure settings.
 2. Install dependencies from requirements.txt.
-3. Start the API with your preferred ASGI runner.
-
-Example:
-- `python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
-
-Open UI at:
-- http://localhost:8000
+3. Start the API:
+	- python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+4. Open UI at http://localhost:8000
 
 ### Email Sending (ACS)
-Email is sent via Azure Communication Services. It will not send unless ACS is configured.
+Emails are sent via Azure Communication Services. It will not send unless ACS is configured.
 
 Required .env settings:
 - `ACS_EMAIL_CONNECTION_STRING`
 - `ACS_EMAIL_SENDER` (must be a verified sender/domain in ACS)
 
 ### LinkedIn Profiles
-The system can surface LinkedIn profile URLs for manual outreach. LinkedIn connection graphs are not available via public APIs.
+The system surfaces LinkedIn profile URLs for manual outreach. LinkedIn connection graphs are not available via public APIs.
 
 ## API Overview
 - POST /campaigns
@@ -55,4 +47,7 @@ The system can surface LinkedIn profile URLs for manual outreach. LinkedIn conne
 - Azure OpenAI is required for LLM-based enrichment.
 - Azure Table Storage is used for persistence.
 - Azure Communication Services Email is used for sending outreach.
-- If email is not configured, the UI will show “Email: not configured” and sending will fail.
+- If email is not configured, the UI shows “Email: not configured” and sending fails.
+
+## Why this project?
+This MVP demonstrates end‑to‑end AI prospecting with production‑grade Azure services: search → enrichment → scoring → outreach. It’s designed to be practical, extensible, and recruiter‑friendly.
