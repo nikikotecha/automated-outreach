@@ -127,7 +127,7 @@ def list_linkedin_profiles(campaign_id: str):
 
 
 @router.post("/campaigns/{campaign_id}/leads/{lead_id}/send")
-def send_email(campaign_id: str, lead_id: str):
+def send_email(campaign_id: str, lead_id: str, background_tasks: BackgroundTasks):
     if not email_sender.is_configured():
         raise HTTPException(status_code=400, detail="Email service not configured")
     lead = store.get_lead(campaign_id, lead_id)
@@ -138,37 +138,9 @@ def send_email(campaign_id: str, lead_id: str):
         raise HTTPException(status_code=400, detail="No email selected")
     subject = lead.get("outreach_subject") or "Hello"
     body = lead.get("outreach_body") or ""
-    message_id = email_sender.send(recipient, subject, body)
-    store.upsert_lead(
-        campaign_id,
-        lead_id,
-        {
-            "status": "SENT",
-            "last_sent_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
-        },
-    )
-    store.add_outreach_log(campaign_id, lead_id, "email_sent", {"message_id": message_id})
-    return {"status": "sent", "message_id": message_id}
-
-
-@router.post("/campaigns/{campaign_id}/leads/send-batch")
-def send_batch(campaign_id: str, payload: dict):
-    if not email_sender.is_configured():
-        raise HTTPException(status_code=400, detail="Email service not configured")
-    lead_ids = payload.get("lead_ids", [])
-    results = []
-    for lead_id in lead_ids:
-        lead = store.get_lead(campaign_id, lead_id)
-        if not lead:
-            results.append({"lead_id": lead_id, "status": "not_found"})
-            continue
-        recipient = lead.get("selected_email")
-        if not recipient:
-            results.append({"lead_id": lead_id, "status": "no_email"})
-            continue
-        subject = lead.get("outreach_subject") or "Hello"
-        body = lead.get("outreach_body") or ""
+    
+    # Send email in background
+    def send_task():
         try:
             message_id = email_sender.send(recipient, subject, body)
             store.upsert_lead(
@@ -181,10 +153,58 @@ def send_batch(campaign_id: str, payload: dict):
                 },
             )
             store.add_outreach_log(campaign_id, lead_id, "email_sent", {"message_id": message_id})
-            results.append({"lead_id": lead_id, "status": "sent", "message_id": message_id})
         except Exception as e:
-            results.append({"lead_id": lead_id, "status": "error", "error": str(e)})
-    return {"results": results}
+            store.upsert_lead(
+                campaign_id,
+                lead_id,
+                {
+                    "status": "SEND_FAILED",
+                    "error": str(e),
+                    "updated_at": datetime.utcnow().isoformat(),
+                },
+            )
+    
+    background_tasks.add_task(send_task)
+    return {"status": "queued", "message": "Email will be sent shortly"}
+
+
+@router.post("/campaigns/{campaign_id}/leads/send-batch")
+def send_batch(campaign_id: str, payload: dict, background_tasks: BackgroundTasks):
+    if not email_sender.is_configured():
+        raise HTTPException(status_code=400, detail="Email service not configured")
+    lead_ids = payload.get("lead_ids", [])
+    
+    def batch_send_task():
+        results = []
+        for lead_id in lead_ids:
+            lead = store.get_lead(campaign_id, lead_id)
+            if not lead:
+                results.append({"lead_id": lead_id, "status": "not_found"})
+                continue
+            recipient = lead.get("selected_email")
+            if not recipient:
+                results.append({"lead_id": lead_id, "status": "no_email"})
+                continue
+            subject = lead.get("outreach_subject") or "Hello"
+            body = lead.get("outreach_body") or ""
+            try:
+                message_id = email_sender.send(recipient, subject, body)
+                store.upsert_lead(
+                    campaign_id,
+                    lead_id,
+                    {
+                        "status": "SENT",
+                        "last_sent_at": datetime.utcnow().isoformat(),
+                        "updated_at": datetime.utcnow().isoformat(),
+                    },
+                )
+                store.add_outreach_log(campaign_id, lead_id, "email_sent", {"message_id": message_id})
+                results.append({"lead_id": lead_id, "status": "sent", "message_id": message_id})
+            except Exception as e:
+                results.append({"lead_id": lead_id, "status": "error", "error": str(e)})
+    
+    background_tasks.add_task(batch_send_task)
+    return {"status": "queued", "message": f"Sending {len(lead_ids)} emails in background"}
 
 
 @router.post("/campaigns/{campaign_id}/followups")

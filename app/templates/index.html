@@ -143,13 +143,21 @@
           }
 
           if (action === 'send') {
-            const res = await fetch(`/campaigns/${campaignId}/leads/${leadId}/send`, { method: 'POST' });
-            if (res.ok) {
-              target.textContent = 'Sent';
-            } else {
-              const err = await res.json();
+            try {
+              const res = await fetch(`/campaigns/${campaignId}/leads/${leadId}/send`, { method: 'POST' });
+              if (res.ok) {
+                target.textContent = 'Queued';
+                setTimeout(() => { target.textContent = 'Send Email'; }, 2000);
+              } else {
+                const err = await res.json();
+                target.textContent = 'Error';
+                alert('Send failed: ' + (err.detail || 'Unknown error'));
+                setTimeout(() => { target.textContent = 'Send Email'; }, 2000);
+              }
+            } catch (e) {
               target.textContent = 'Error';
-              alert(err.detail || 'Failed to send');
+              alert('Network error: ' + e.message);
+              setTimeout(() => { target.textContent = 'Send Email'; }, 2000);
             }
           }
         });

@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     acs_email_connection_string: str | None = None
     acs_email_sender: str | None = None
 
+    gmail_user: str | None = None
+    gmail_app_password: str | None = None
+
     sender_name: str = "Your Name"
     sender_title: str = "Founder"
     sender_company: str = "Your Company"

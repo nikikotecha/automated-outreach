@@ -21,12 +21,16 @@ class TableStore:
     def _ensure_tables(self) -> None:
         if not self.service:
             return
-        for table_name in [
-            settings.storage_campaigns_table,
-            settings.storage_leads_table,
-            settings.storage_outreach_table,
-        ]:
-            self.service.create_table_if_not_exists(table_name)
+        try:
+            for table_name in [
+                settings.storage_campaigns_table,
+                settings.storage_leads_table,
+                settings.storage_outreach_table,
+            ]:
+                self.service.create_table_if_not_exists(table_name)
+        except Exception as e:
+            print(f"[WARNING] Azure Table Storage auth failed: {e}")
+            self.service = None
 
     def _table(self, name: str):
         if not self.service:
